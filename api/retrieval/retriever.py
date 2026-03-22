@@ -1,27 +1,71 @@
 import json
-from .embedder import get_embedding
-from .vector_store import VectorStore
+import os
+from difflib import SequenceMatcher
 
-store = VectorStore()
+FACTS_FILE = "facts.json"
 
-# Load initial facts (optional)
+# 🔹 Load facts from file
 def load_facts():
-    try:
-        with open("data/facts.json") as f:
-            facts = json.load(f)
+    if not os.path.exists(FACTS_FILE):
+        return []
 
-        for fact in facts:
-            add_fact(fact)
-
-    except FileNotFoundError:
-        pass
+    with open(FACTS_FILE, "r", encoding="utf-8") as f:
+        print("✅ FACTS LOADED:", len(FACTS))
+        return json.load(f)
 
 
+# 🔹 Normalize text
+def normalize(text):
+    return text.lower().replace(".", "").strip()
+
+
+# 🔹 Retrieve relevant facts
+
+
+
+# Load facts once
+with open("facts.json", "r") as f:
+    FACTS = json.load(f)
+
+print("✅ FACTS LOADED:", len(FACTS))
+
+
+def retrieve(query: str, top_k=5):
+
+    query_words = set(query.lower().split())
+
+    results = []
+
+    for fact in FACTS_FILE:
+        fact_words = set(fact.lower().split())
+
+        # 🔹 SIMPLE WORD OVERLAP SIMILARITY
+        common = query_words.intersection(fact_words)
+
+        if len(query_words) > 0:
+            score = len(common) / len(query_words)
+        else:
+            score = 0
+
+        # 🔹 FILTER (IMPORTANT)
+        if score > 0.2:
+            results.append((fact, score))
+
+    # 🔹 SORT BEST MATCHES
+    results.sort(key=lambda x: x[1], reverse=True)
+
+    print("📦 Retrieved:", results[:top_k])
+
+    return results[:top_k]
+# 🔹 Add new fact
 def add_fact(fact: str):
-    emb = get_embedding(fact)
-    store.add(fact, emb)
+    facts = load_facts()
+    facts.append(fact)
+
+    with open(FACTS_FILE, "w", encoding="utf-8") as f:
+        json.dump(facts, f, indent=4)
 
 
-def retrieve(query: str):
-    q_emb = get_embedding(query)
-    return store.search(q_emb)
+# 🔹 Save fact (same as add)
+def save_fact_to_file(fact: str):
+    add_fact(fact)
