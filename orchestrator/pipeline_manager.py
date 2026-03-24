@@ -1,3 +1,4 @@
+#pipeline_manager.py
 from api.retrieval.retriever import retrieve
 from api.verification.optimization.fluff_flutter import remove_fluff
 
@@ -22,6 +23,8 @@ def run_pipeline(query: str):
 
         # 🔹 Step 2: Retrieve facts
         raw_results = retrieve(cleaned_query)
+        raw_results = raw_results[:3]
+        print("\n Retrieved result :",raw_results)
 
         if not raw_results:
             return {
@@ -76,6 +79,7 @@ def run_pipeline(query: str):
 
             set(query, result)
             return result
+        
 
         result = {
             "overall_verdict": decision.get("verdict", "UNVERIFIED"),

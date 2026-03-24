@@ -1,87 +1,79 @@
-from api.retrieval.retriever import retrieve
+#pipeline_helper.py
 from orchestrator.pipeline_manager import run_pipeline
+import re
 
 
-# 🔹 STEP 1: Split claims
+# 🔹 STEP 1: Split paragraph into smaller claims
 def split_into_claims(text: str):
-    import re
-
-    if not text:
-        return []
-
-    sentences = re.split(r'[.!?]+', text)
-    claims = []
-
-    for sentence in sentences:
-        parts = re.split(r'\band\b|\bbut\b|\bor\b', sentence, flags=re.IGNORECASE)
-        for part in parts:
-            clean = part.strip()
-            if clean:
-                claims.append(clean)
-
-    return claims
 
 
-# 🔹 STEP 2: word set
-def get_words(text: str):
-    return set(text.lower().replace(".", "").split())
+    # 🔥 Split on conjunctions AND punctuation
+    parts = re.split(r"\b(?:and|but|or|while)\b|[,.!?]+", text, flags=re.IGNORECASE)
 
+    return [p.strip() for p in parts if p.strip()]
 
-# 🔹 STEP 3: evaluate claim (FINAL LOGIC)
+def detect_contradictions(claim: str, fact_texts):
+    penalty = 0.0
+
+    claim_lower = claim.lower()
+
+    for fact in fact_texts:
+        fact_lower = fact.lower()
+
+        # 🔥 ONLY penalize if meaning truly conflicts
+        if "not" in claim_lower and "not" not in fact_lower:
+            # check strong mismatch instead of direct penalty
+            if any(word in fact_lower for word in ["is", "are", "was"]):
+                penalty += 0.1
+
+        elif "not" not in claim_lower and "not" in fact_lower:
+            if any(word in claim_lower for word in ["is", "are", "was"]):
+                penalty += 0.1
+
+    return min(penalty, 0.3)  # 🔥 reduce max penalty
+
+# 🔹 STEP 2: Evaluate a single claim USING FULL PIPELINE
 def evaluate_claim(claim: str):
 
-    print("\n==============================")
-    print("🔍 CLAIM:", claim)
+    print("\n🔍 Checking Claim:", claim)
 
-    # 🔹 STEP 1: Retrieve
-    retrieved = retrieve(claim)
+    result = run_pipeline(claim)
 
-    print("📦 Retrieved Results:", retrieved)
+    facts = result.get("details", [])
+    fact_texts = [f.get("text", "") for f in facts]
 
-    if not retrieved:
-        print("❌ No facts retrieved")
-        return {
-            "claim": claim,
-            "verdict": "UNVERIFIED",
-            "confidence": 0,
-            "matched_fact": None
-        }
+    penalty = detect_contradictions(claim, fact_texts)
 
-    claim_words = set(claim.lower().split())
-    print("🧠 Claim Words:", claim_words)
+    base_conf = result.get("confidence", 0)
 
-    best_match = None
-    best_score = 0
+    print("📊 Base Confidence:", base_conf)
+    print("⚠️ Penalty:", penalty)
 
-    for fact, sim in retrieved:
-        print("\n➡️ Checking Fact:", fact)
+    # 🔥 NEGATION HANDLING (INLINE FIX - NO NEW FUNCTION)
+    claim_lower = claim.lower()
+    neg_words = [" not ", " no ", " never ", "does not", "do not"]
 
-        fact_words = set(fact.lower().split())
-        common = claim_words.intersection(fact_words)
+    claim_has_neg = any(w in claim_lower for w in neg_words)
 
-        print("   Fact Words:", fact_words)
-        print("   Common Words:", common)
+    adjusted_conf = base_conf
 
-        if len(claim_words) > 0:
-            score = len(common) / len(claim_words)
-        else:
-            score = 0
+    for fact in fact_texts:
+        fact_lower = fact.lower()
+        fact_has_neg = any(w in fact_lower for w in neg_words)
 
-        print("   Overlap Score:", score)
+        # 🔥 If negation mismatch → reduce confidence
+        if claim_has_neg != fact_has_neg:
+            adjusted_conf -= 0.5
 
-        if score > best_score:
-            best_score = score
-            best_match = fact
+    # 🔥 final confidence after penalty
+    final_conf = max(0, adjusted_conf - penalty)
 
-    print("\n✅ BEST MATCH:", best_match)
-    print("⭐ BEST SCORE:", best_score)
-
-    # Simple verdict
-    if best_score >= 0.7:
+    # 🔥 smarter verdict logic
+    if final_conf > 0.7:
         verdict = "SUPPORTED"
-    elif best_score >= 0.4:
+    elif final_conf > 0.5:
         verdict = "PARTIALLY_SUPPORTED"
-    elif best_score >= 0.2:
+    elif final_conf > 0.3:
         verdict = "UNCERTAIN"
     else:
         verdict = "REFUTED"
@@ -89,22 +81,10 @@ def evaluate_claim(claim: str):
     return {
         "claim": claim,
         "verdict": verdict,
-        "confidence": round(best_score, 2),
-        "matched_fact": best_match
+        "confidence": round(final_conf, 2)
     }
-# 🔹 STEP 4: main
+# 🔹 MAIN FUNCTION
 def process_claim(query: str):
-
-    if not query or not query.strip():
-        return {
-            "original_query": query,
-            "processed_query": "",
-            "result": {
-                "overall_verdict": "UNVERIFIED",
-                "confidence": 0,
-                "details": []
-            }
-        }
 
     claims = split_into_claims(query)
 
@@ -112,28 +92,23 @@ def process_claim(query: str):
     scores = []
 
     for claim in claims:
-        res = evaluate_claim(claim)
-        results.append(res)
-        scores.append(res["confidence"])
+        result = evaluate_claim(claim)
+        results.append(result)
+        scores.append(result["confidence"])
 
+    # 🔹 overall decision
     avg_score = sum(scores) / len(scores) if scores else 0
 
-    supported = sum(1 for r in results if r["verdict"] == "SUPPORTED")
-    partial = sum(1 for r in results if r["verdict"] == "PARTIALLY_SUPPORTED")
-
-    # 🔥 FINAL OVERALL LOGIC
-    if supported == len(results):
+    if avg_score > 0.75:
         overall = "SUPPORTED"
-    elif supported + partial >= len(results) / 2:
+    elif avg_score > 0.5:
         overall = "PARTIALLY_SUPPORTED"
-    elif avg_score >= 0.3:
+    elif avg_score > 0.3:
         overall = "UNCERTAIN"
     else:
         overall = "REFUTED"
 
     return {
-        "original_query": query,
-        "processed_query": " | ".join(claims),
         "result": {
             "overall_verdict": overall,
             "confidence": round(avg_score, 2),
@@ -142,7 +117,7 @@ def process_claim(query: str):
     }
 
 
-# 🔹 STEP 5: add fact
+# 🔹 ADD FACT (UNCHANGED)
 def add_user_fact(fact: str):
     try:
         from api.retrieval.retriever import add_fact, save_fact_to_file
@@ -150,7 +125,13 @@ def add_user_fact(fact: str):
         add_fact(fact)
         save_fact_to_file(fact)
 
-        return {"status": "success"}
+        return {
+            "status": "success",
+            "message": "Fact added successfully"
+        }
 
     except Exception as e:
-        return {"status": "error", "message": str(e)}
+        return {
+            "status": "error",
+            "message": str(e)
+        }

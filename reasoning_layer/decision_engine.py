@@ -4,18 +4,23 @@ def make_decision(facts):
     if not facts:
         return {"verdict": "UNVERIFIED", "confidence": 0}
 
-    top = facts[0]
-    score = top["score"]
+    top_facts = facts[:3]
+    scores = [f["score"] for f in top_facts]
 
-    if score >= DECISION_THRESHOLD_HIGH:
-        verdict = "SUPPORTED"
-    elif score >= DECISION_THRESHOLD_LOW:
+    avg_score = sum(scores) / len(scores)
+
+    # 🔥 NEW: detect contradiction pattern
+    if avg_score < 0.3:
+        verdict = "REFUTED"
+    elif avg_score < 0.5:
         verdict = "UNCERTAIN"
+    elif avg_score < 0.7:
+        verdict = "PARTIALLY_SUPPORTED"
     else:
-        verdict = "CONTRADICTED"
+        verdict = "SUPPORTED"
 
     return {
         "verdict": verdict,
-        "confidence": round(score, 2),
-        "fact_id": top["id"]
+        "confidence": round(avg_score, 2),
+        "fact_id": top_facts[0]["id"]
     }

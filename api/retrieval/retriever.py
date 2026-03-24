@@ -1,71 +1,70 @@
-import json
 import os
-from difflib import SequenceMatcher
+import json
+from api.retrieval.vector_store import VectorStore
+from api.retrieval.embedder import get_embedding
 
-FACTS_FILE = "facts.json"
+# 🔹 Initialize vector store
+store = VectorStore()
 
-# 🔹 Load facts from file
+# 🔹 Correct path to facts.json
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+FACT_PATH = os.path.join(BASE_DIR, "../data/facts.json")
+
+
+# 🔹 Load facts into vector store (ONLY ONCE)
 def load_facts():
-    if not os.path.exists(FACTS_FILE):
+    try:
+        with open(FACT_PATH, "r") as f:
+            facts = json.load(f)
+
+        for fact in facts:
+            vector = get_embedding(fact)
+            store.add(fact, vector)
+
+        print("✅ Facts loaded successfully:", len(facts))
+
+    except Exception as e:
+        print("❌ Error loading facts:", e)
+
+
+# 🔹 Call load once
+load_facts()
+
+
+# 🔹 Retrieve similar facts
+def retrieve(query: str, top_k=3):
+    try:
+        query_vector = get_embedding(query)
+
+        results = store.search(query_vector, top_k=top_k)
+
+        # 🔥 DEBUG PRINT (VERY IMPORTANT)
+        print("\n🔍 QUERY:", query)
+        print("🔍 RETRIEVED:", results)
+
+        return results
+
+    except Exception as e:
+        print("❌ Retrieval error:", e)
         return []
 
-    with open(FACTS_FILE, "r", encoding="utf-8") as f:
-        print("✅ FACTS LOADED:", len(FACTS))
-        return json.load(f)
 
-
-# 🔹 Normalize text
-def normalize(text):
-    return text.lower().replace(".", "").strip()
-
-
-# 🔹 Retrieve relevant facts
-
-
-
-# Load facts once
-with open("facts.json", "r") as f:
-    FACTS = json.load(f)
-
-print("✅ FACTS LOADED:", len(FACTS))
-
-
-def retrieve(query: str, top_k=5):
-
-    query_words = set(query.lower().split())
-
-    results = []
-
-    for fact in FACTS_FILE:
-        fact_words = set(fact.lower().split())
-
-        # 🔹 SIMPLE WORD OVERLAP SIMILARITY
-        common = query_words.intersection(fact_words)
-
-        if len(query_words) > 0:
-            score = len(common) / len(query_words)
-        else:
-            score = 0
-
-        # 🔹 FILTER (IMPORTANT)
-        if score > 0.2:
-            results.append((fact, score))
-
-    # 🔹 SORT BEST MATCHES
-    results.sort(key=lambda x: x[1], reverse=True)
-
-    print("📦 Retrieved:", results[:top_k])
-
-    return results[:top_k]
-# 🔹 Add new fact
+# 🔹 Add fact dynamically
 def add_fact(fact: str):
-    facts = load_facts()
-    facts.append(fact)
-
-    with open(FACTS_FILE, "w", encoding="utf-8") as f:
-        json.dump(facts, f, indent=4)
+    vector = get_embedding(fact)
+    store.add(fact, vector)
 
 
-# 🔹 Save fact (same as add)
+# 🔹 Save to file
 def save_fact_to_file(fact: str):
-    add_fact(fact)
+    try:
+        with open(FACT_PATH, "r") as f:
+            data = json.load(f)
+
+        data.append(fact)
+
+        with open(FACT_PATH, "w") as f:
+            json.dump(data, f, indent=4)
+
+    except Exception as e:
+        print("❌ Save error:", e)

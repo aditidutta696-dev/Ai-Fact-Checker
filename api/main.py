@@ -1,3 +1,4 @@
+#main.py
 from fastapi import FastAPI
 from pydantic import BaseModel
 import requests
@@ -37,7 +38,7 @@ def get_scaledown_text(query: str):
             headers=headers,
             json={
                 "model": "gpt-4o",
-                "prompt": f"Simplify and clean this claim: {query}"
+                "context": f"Simplify and clean this claim: {query}"
             }
         )
 
